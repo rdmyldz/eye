@@ -85,21 +85,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	// to direct signal into the for loop to kill subprocess before shutdown the app
-	sigDir := make(chan os.Signal, 1)
-
 	// gracefully shutdown to kill subprocess
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT)
-	go func() {
-		s := <-sig
-		log.Printf("got a signal to shut down: %v", s)
-		sigDir <- s
-		log.Println("redirect signal into the for")
-		<-sig
-		log.Println("got back signal from the for to here")
-		os.Exit(1)
-	}()
 
 	var out bytes.Buffer
 	for {
@@ -117,23 +105,23 @@ func main() {
 		}
 
 		go func(cmd *exec.Cmd) {
-			var s os.Signal
 			select {
 			case <-notCh:
 				log.Println("received from notCh")
-			case s = <-sigDir:
-				log.Printf("got a signal to shut down: %v", s)
+				err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+				if err != nil {
+					log.Printf("kill err: %v", err)
+				}
+				log.Println("process killed")
+			case <-sig:
+				log.Println("got signal to shut down")
+				err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+				if err != nil {
+					log.Printf("kill err: %v", err)
+				}
+				log.Println("process killed and exiting")
+				os.Exit(1)
 
-			}
-
-			err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-			if err != nil {
-				log.Printf("kill err: %v", err)
-			}
-			log.Println("process killed")
-			if s != nil {
-				log.Printf("os.signal is not nil: %v", s)
-				sig <- s
 			}
 		}(cmd)
 
